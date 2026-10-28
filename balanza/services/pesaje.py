@@ -16,17 +16,21 @@ class ErrorPesaje(Exception):
 
 
 class ServicioPesaje:
-    def __init__(self, db: BaseDatos, puesto: str, peso_minimo_kg: float, max_antiguedad_s: float = 3.0):
+    def __init__(self, db: BaseDatos, puesto: str, peso_minimo_kg: float, max_antiguedad_s: float = 3.0,
+                 operador: str = ""):
         self.db = db
         self.puesto = puesto
         self.peso_minimo_kg = peso_minimo_kg
         self.max_antiguedad_s = max_antiguedad_s
+        self.operador = operador  # usuario de LogiGrain que inició sesión (va en el ticket)
 
     def pesaje_abierto(self, camion: Camion) -> Pesaje | None:
         return self.db.pesaje_abierto(camion.id)
 
-    def capturar(self, camion: Camion, lectura: LecturaPeso | None, balanza_nro: int | None = None) -> Pesaje:
-        """Registra el primer peso del camión, o el segundo si ya tiene un pesaje abierto."""
+    def capturar(self, camion: Camion, lectura: LecturaPeso | None, balanza_nro: int | None = None,
+                 simulado: bool = False) -> Pesaje:
+        """Registra el primer peso del camión, o el segundo si ya tiene un pesaje abierto.
+        `simulado`: la lectura vino del simulador (el ticket lo indica)."""
         self._validar(lectura)
         abierto = self.db.pesaje_abierto(camion.id)
         if abierto is None and camion.posicion == POSICION_CON_PRIMER_PESO:
@@ -39,14 +43,16 @@ class ServicioPesaje:
                 evento=None,
             )
         if abierto is None:
-            return self.db.insertar_pesaje(
-                self._nuevo(camion, lectura.kg, lectura.momento, lectura.crudo, balanza_nro), EVENTO_PRIMER_PESO
-            )
+            nuevo = self._nuevo(camion, lectura.kg, lectura.momento, lectura.crudo, balanza_nro)
+            nuevo.simulado = simulado
+            return self.db.insertar_pesaje(nuevo, EVENTO_PRIMER_PESO)
 
         abierto.peso2_kg = lectura.kg
         abierto.peso2_momento = lectura.momento
         abierto.peso2_crudo = lectura.crudo
         abierto.balanza2_nro = balanza_nro
+        abierto.operador = self.operador
+        abierto.simulado = abierto.simulado or simulado
         return self.db.registrar_segundo_peso(abierto, EVENTO_SEGUNDO_PESO)
 
     def _nuevo(self, camion: Camion, kg: float, momento: datetime, crudo: str, balanza_nro: int | None) -> Pesaje:
@@ -65,6 +71,11 @@ class ServicioPesaje:
             peso1_momento=momento,
             peso1_crudo=crudo,
             balanza1_nro=balanza_nro,
+            chofer_cuit=camion.chofer_cuit,
+            fecha_ingreso=camion.fecha_ingreso,
+            cpe_id=camion.cpe_id,
+            grado=camion.grado,
+            operador=self.operador,
         )
 
     def _validar(self, lectura: LecturaPeso | None) -> None:

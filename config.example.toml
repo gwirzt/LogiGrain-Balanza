@@ -8,7 +8,7 @@ peso_minimo_kg = 500          # no permite pesar por debajo de este valor (balan
 # El primero se muestra arriba a la izquierda (tecla F2), el segundo arriba a la derecha (tecla F3).
 [[balanzas]]
 nro = 1                       # número de balanza en LogiGrain (se envía como balanza_nro)
-modo = "serie"                # "simulador" para probar sin cabezal | "serie" para el cabezal real
+modo = "serie"                # modo al abrir: "serie" (cabezal real) | "simulador"; se cambia en pantalla con Ctrl+F2/F3
 puerto = "COM3"
 baudios = 9600
 bits_datos = 8
@@ -31,7 +31,8 @@ baudios = 9600
 modo = "http"                 # "mock" (datos de prueba) | "http" (API LogiGrain real)
 url_base = "http://10.1.0.5:5173"
 # port_id = 1                 # sin valor: el primer puerto asignado al usuario
-enviar_pesos = true           # false = modo prueba, no registra pesos. No se permite true con simuladores.
+enviar_pesos = true           # false = modo prueba, no registra pesos. Con true no se permite el simulador...
+# permitir_pesos_simulados = true  # ...salvo con esto: SOLO PRUEBAS, registra en LogiGrain los pesos del simulador
 timeout_s = 10
 intervalo_sync_s = 30         # cada cuánto reintenta enviar pesajes pendientes
 # El usuario y la contraseña se piden al abrir el programa (se completan con el archivo .env si existe:
@@ -43,3 +44,4 @@ ancho_mm = 80                 # 80 para térmica de tickets, 210 para A4
 alto_mm = 220
 empresa = "Servicios Portuarios S.A."
 vista_previa = true
+guardar_pdf = true            # copia PDF de cada ticket en datos\tickets\AAAA-MM\

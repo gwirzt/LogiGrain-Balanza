@@ -77,12 +77,13 @@ def main(argv: list[str] | None = None) -> int:
     sys.excepthook = error_no_controlado
 
     simuladas = [str(b.nro) for b in cfg.balanzas if b.modo == "simulador"]
-    if cfg.api.modo == "http" and cfg.api.enviar_pesos and simuladas:
+    if simuladas and not cfg.api.simulador_permitido:
         QMessageBox.critical(
             None, "Configuración insegura",
             f"La balanza {', '.join(simuladas)} está en modo simulador y enviar_pesos = true:\n"
             "se registrarían pesos ficticios en LogiGrain.\n\n"
-            "Ponga modo = \"serie\" en cada balanza o enviar_pesos = false.",
+            "Ponga modo = \"serie\" en cada balanza o enviar_pesos = false\n"
+            "(o permitir_pesos_simulados = true, solo para pruebas).",
         )
         return 1
 
@@ -100,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg,
         db,
         cliente,
-        ServicioPesaje(db, cfg.puesto, cfg.peso_minimo_kg),
+        ServicioPesaje(db, cfg.puesto, cfg.peso_minimo_kg, operador=cliente.usuario),
         Sincronizador(db, cliente),
     )
     ventana.showMaximized()

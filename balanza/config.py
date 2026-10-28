@@ -6,6 +6,7 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 MAX_BALANZAS = 2
+MODOS_BALANZA = ("simulador", "serie")
 
 
 @dataclass
@@ -13,7 +14,7 @@ class BalanzaConfig:
     """Un cabezal (indicador). La primera balanza del archivo se muestra a la izquierda, la segunda a la derecha."""
 
     nro: int = 1  # número de balanza en LogiGrain (se envía como balanza_nro)
-    modo: str = "simulador"  # "simulador" | "serie"
+    modo: str = "simulador"  # modo al abrir: "simulador" | "serie" (se cambia en pantalla con Ctrl+F2/F3)
     puerto: str = "COM1"
     baudios: int = 9600
     bits_datos: int = 8
@@ -32,8 +33,18 @@ class ApiConfig:
     url_base: str = ""
     port_id: int | None = None  # sin valor: el primer puerto asignado al usuario
     enviar_pesos: bool = False  # seguridad: hasta habilitarlo no se registran pesos en LogiGrain
+    permitir_pesos_simulados: bool = False  # solo para pruebas: deja enviar a LogiGrain los pesos del simulador
     timeout_s: float = 10.0
     intervalo_sync_s: int = 30
+
+    @property
+    def envia_pesos_simulados(self) -> bool:
+        """True si un peso del simulador terminaría registrado en LogiGrain."""
+        return self.modo == "http" and self.enviar_pesos
+
+    @property
+    def simulador_permitido(self) -> bool:
+        return self.permitir_pesos_simulados or not self.envia_pesos_simulados
 
 
 @dataclass
@@ -43,6 +54,7 @@ class TicketConfig:
     alto_mm: int = 200
     empresa: str = "Logiports"
     vista_previa: bool = True
+    guardar_pdf: bool = True  # copia PDF de cada ticket en <carpeta_datos>/tickets/AAAA-MM/
 
 
 @dataclass
@@ -57,6 +69,10 @@ class AppConfig:
     @property
     def ruta_db(self) -> Path:
         return Path(self.carpeta_datos) / "balanza.db"
+
+    @property
+    def carpeta_tickets(self) -> Path:
+        return Path(self.carpeta_datos) / "tickets"
 
 
 def _armar(cls, datos: dict, seccion: str):
@@ -76,6 +92,9 @@ def _balanzas(datos: dict) -> list[BalanzaConfig]:
         lista = [_armar(BalanzaConfig, b, "balanzas") for b in datos.get("balanzas", [{}])]
     if not 1 <= len(lista) <= MAX_BALANZAS:
         raise ValueError(f"Se admiten 1 o {MAX_BALANZAS} balanzas; hay {len(lista)}.")
+    for b in lista:
+        if b.modo not in MODOS_BALANZA:
+            raise ValueError(f"Modo de balanza desconocido: {b.modo!r} (use 'simulador' o 'serie').")
     nros = [b.nro for b in lista]
     if len(set(nros)) != len(nros):
         raise ValueError(f"Cada balanza necesita un nro distinto (están repetidos: {nros}).")

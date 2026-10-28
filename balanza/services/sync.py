@@ -34,12 +34,15 @@ class Sincronizador:
             enviados = fallidos = 0
             for envio in self.db.envios_pendientes():
                 try:
-                    self.cliente.enviar(envio.tipo, envio.payload)
+                    respuesta = self.cliente.enviar(envio.tipo, envio.payload)
                 except Exception as e:  # noqa: BLE001 - cualquier falla deja el envío pendiente
                     log.warning("No se pudo enviar %s del pesaje %s: %s", envio.tipo, envio.pesaje_id, e)
                     self.db.marcar_error(envio.id, str(e))
                     fallidos += 1
                     break
+                # Antes de marcarlo enviado: quien vea el envío confirmado ya encuentra el romaneo guardado.
+                if isinstance(respuesta, dict) and respuesta.get("romaneo"):
+                    self.db.guardar_romaneo(envio.pesaje_id, respuesta["romaneo"])
                 self.db.marcar_enviado(envio.id)
                 enviados += 1
             return self._resultado(enviados, fallidos)

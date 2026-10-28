@@ -33,7 +33,14 @@ CREATE TABLE IF NOT EXISTS pesajes (
     peso2_momento    TEXT,
     peso2_crudo      TEXT NOT NULL DEFAULT '',
     balanza1_nro     INTEGER,
-    balanza2_nro     INTEGER
+    balanza2_nro     INTEGER,
+    romaneo          TEXT,
+    chofer_cuit      TEXT NOT NULL DEFAULT '',
+    fecha_ingreso    TEXT,
+    cpe_id           INTEGER,
+    grado            TEXT NOT NULL DEFAULT '',
+    operador         TEXT NOT NULL DEFAULT '',
+    simulado         INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS ix_pesajes_camion ON pesajes (camion_id, peso2_kg);
 CREATE INDEX IF NOT EXISTS ix_pesajes_momento ON pesajes (peso1_momento);
@@ -53,7 +60,10 @@ CREATE INDEX IF NOT EXISTS ix_envios_pendientes ON envios (enviado);
 
 # Columnas agregadas después de la primera versión: se suman a bases ya existentes.
 MIGRACIONES = {
-    "pesajes": {"destinatario": "TEXT NOT NULL DEFAULT ''", "balanza1_nro": "INTEGER", "balanza2_nro": "INTEGER"},
+    "pesajes": {"destinatario": "TEXT NOT NULL DEFAULT ''", "balanza1_nro": "INTEGER", "balanza2_nro": "INTEGER",
+                "romaneo": "TEXT", "chofer_cuit": "TEXT NOT NULL DEFAULT ''", "fecha_ingreso": "TEXT",
+                "cpe_id": "INTEGER", "grado": "TEXT NOT NULL DEFAULT ''", "operador": "TEXT NOT NULL DEFAULT ''",
+                "simulado": "INTEGER NOT NULL DEFAULT 0"},
 }
 
 
@@ -81,6 +91,13 @@ def _a_pesaje(r: sqlite3.Row) -> Pesaje:
         peso2_crudo=r["peso2_crudo"],
         balanza1_nro=r["balanza1_nro"],
         balanza2_nro=r["balanza2_nro"],
+        romaneo=json.loads(r["romaneo"]) if r["romaneo"] else None,
+        chofer_cuit=r["chofer_cuit"],
+        fecha_ingreso=_fecha(r["fecha_ingreso"]),
+        cpe_id=r["cpe_id"],
+        grado=r["grado"],
+        operador=r["operador"],
+        simulado=bool(r["simulado"]),
     )
 
 
@@ -119,11 +136,13 @@ class BaseDatos:
         with self._conectar() as cx:
             cur = cx.execute(
                 """INSERT INTO pesajes (camion_id, patente, patente_acoplado, operacion, puesto, producto, chofer,
-                                        transportista, destinatario, peso1_kg, peso1_momento, peso1_crudo, balanza1_nro)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                        transportista, destinatario, peso1_kg, peso1_momento, peso1_crudo, balanza1_nro,
+                                        chofer_cuit, fecha_ingreso, cpe_id, grado, operador, simulado)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (p.camion_id, p.patente, p.patente_acoplado, str(p.operacion), p.puesto, p.producto, p.chofer,
                  p.transportista, p.destinatario, p.peso1_kg, p.peso1_momento.isoformat(), p.peso1_crudo,
-                 p.balanza1_nro),
+                 p.balanza1_nro, p.chofer_cuit, p.fecha_ingreso.isoformat() if p.fecha_ingreso else None,
+                 p.cpe_id, p.grado, p.operador, int(p.simulado)),
             )
             p = replace(p, id=cur.lastrowid)
             if evento:
@@ -133,14 +152,20 @@ class BaseDatos:
     def registrar_segundo_peso(self, p: Pesaje, evento: str) -> Pesaje:
         with self._conectar() as cx:
             cur = cx.execute(
-                """UPDATE pesajes SET peso2_kg = ?, peso2_momento = ?, peso2_crudo = ?, balanza2_nro = ?
+                """UPDATE pesajes SET peso2_kg = ?, peso2_momento = ?, peso2_crudo = ?, balanza2_nro = ?,
+                                     operador = ?, simulado = ?
                    WHERE id = ? AND peso2_kg IS NULL""",
-                (p.peso2_kg, p.peso2_momento.isoformat(), p.peso2_crudo, p.balanza2_nro, p.id),
+                (p.peso2_kg, p.peso2_momento.isoformat(), p.peso2_crudo, p.balanza2_nro, p.operador,
+                 int(p.simulado), p.id),
             )
             if cur.rowcount != 1:
                 raise RuntimeError(f"El pesaje {p.id} no existe o ya estaba cerrado.")
             self._encolar(cx, p, evento)
         return p
+
+    def guardar_romaneo(self, pesaje_id: int, romaneo: dict) -> None:
+        with self._conectar() as cx:
+            cx.execute("UPDATE pesajes SET romaneo = ? WHERE id = ?", (json.dumps(romaneo), pesaje_id))
 
     def pesaje_abierto(self, camion_id: str) -> Pesaje | None:
         with self._conectar() as cx:
@@ -195,6 +220,13 @@ class BaseDatos:
                 "UPDATE envios SET intentos = intentos + 1, ultimo_error = ? WHERE id = ?",
                 (error[:500], envio_id),
             )
+
+    def envio_pendiente(self, pesaje_id: int, tipo: str) -> bool:
+        with self._conectar() as cx:
+            r = cx.execute(
+                "SELECT 1 FROM envios WHERE pesaje_id = ? AND tipo = ? AND enviado IS NULL", (pesaje_id, tipo)
+            ).fetchone()
+        return r is not None
 
     def contar_pendientes(self) -> int:
         with self._conectar() as cx:

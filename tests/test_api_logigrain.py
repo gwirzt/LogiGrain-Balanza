@@ -17,6 +17,13 @@ DETALLE = {
     **VEHICULO, "tipo_operacion": "D", "chofer_nombre": "MARTINEZ WALTER", "transportista_nombre": "TRANSPORTE CADI",
     "codigo_turno": "20261027001383", "peso_bruto_balanza": None, "peso_tara_balanza": None, "puede_pesar": True,
 }
+# Romaneo que devolvió LogiGrain en la prueba real del CTG 10235570674 (41.200 / 14.240).
+ROMANEO = {
+    "peso_bruto_kg": 41200, "peso_tara_kg": 14240, "peso_neto_kg": 26960,
+    "mermas": {"fis_humedad_kg": 0, "fis_humedad_pct": 0.0, "volatil_kg": 27, "volatil_pct": 0.1,
+               "rubros_kg": 270, "rubros_pct": 1.0, "total_kg": 297, "total_pct": 1.0},
+    "peso_neto_final_kg": 26663, "merma_total_kg": 297,
+}
 
 
 class Servidor:
@@ -49,8 +56,14 @@ class Servidor:
                 return httpx.Response(422, json={"detail": "está en posición FINALIZADO (Finalizado)."})
             return httpx.Response(200, json={**DETALLE, "posicion_actual": self.posicion})
         if ruta == "/api/v1/balanza/registrar-peso":
-            self.posicion = "CON_PRIMER_PESO" if self.posicion == "EN_PUERTO_CALADO" else "FINALIZADO"
-            return httpx.Response(200, json={"ok": True})
+            segundo = self.posicion == "CON_PRIMER_PESO"
+            self.posicion = "FINALIZADO" if segundo else "CON_PRIMER_PESO"
+            respuesta = {"success": True, "nro_ctg": cuerpo["nro_ctg"], "tipo_peso": "TARA" if segundo else "BRUTO",
+                         "peso_registrado_kg": cuerpo["peso_kg"], "es_segundo_peso": segundo,
+                         "posicion_actual": self.posicion}
+            if segundo:  # como LogiGrain: el 2° peso devuelve el romaneo
+                respuesta["romaneo"] = ROMANEO
+            return httpx.Response(200, json=respuesta)
         return httpx.Response(404, json={"detail": "Not Found"})
 
     def rutas(self, ruta):
@@ -118,14 +131,16 @@ PAYLOAD_2 = {"camion_id": "10235770572", "peso1_kg": 45320.0, "peso2_kg": 15140.
 
 def test_envio_deshabilitado_no_registra(servidor):
     c = cliente(servidor)
-    c.enviar("primer_peso", PAYLOAD_1)
+    assert c.enviar("primer_peso", PAYLOAD_1) is None
     assert servidor.rutas("/api/v1/balanza/registrar-peso") == []
 
 
 def test_envio_habilitado_registra_ambos_pesos(servidor):
     c = cliente(servidor, enviar_pesos=True)
-    c.enviar("primer_peso", PAYLOAD_1)
-    c.enviar("segundo_peso", PAYLOAD_2)
+    r1 = c.enviar("primer_peso", PAYLOAD_1)
+    r2 = c.enviar("segundo_peso", PAYLOAD_2)
+    assert r1["tipo_peso"] == "BRUTO" and "romaneo" not in r1
+    assert r2["tipo_peso"] == "TARA" and r2["romaneo"]["peso_neto_final_kg"] == 26_663
     assert servidor.rutas("/api/v1/balanza/registrar-peso") == [
         {"port_id": 1, "nro_ctg": 10235770572, "peso_kg": 45320, "balanza_nro": 1},
         {"port_id": 1, "nro_ctg": 10235770572, "peso_kg": 15140, "balanza_nro": 2},
@@ -138,7 +153,7 @@ def test_reintento_no_duplica_pesos(servidor):
     servidor.posicion = "CON_PRIMER_PESO"
     c.enviar("primer_peso", PAYLOAD_1)
     servidor.posicion = "FINALIZADO"
-    c.enviar("segundo_peso", PAYLOAD_2)
+    assert c.enviar("segundo_peso", PAYLOAD_2) is None  # el romaneo se perdió con la respuesta original
     assert servidor.rutas("/api/v1/balanza/registrar-peso") == []
 
 

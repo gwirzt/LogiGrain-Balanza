@@ -37,8 +37,9 @@ class ClienteLogigrain(ABC):
         """Datos de la Carta de Porte, validando que se pueda pesar (lanza ErrorApi si no)."""
 
     @abstractmethod
-    def enviar(self, tipo: str, payload: dict) -> None:
-        """Informa un evento de pesaje. Debe lanzar excepción si la API no lo aceptó."""
+    def enviar(self, tipo: str, payload: dict) -> dict | None:
+        """Informa un evento de pesaje. Debe lanzar excepción si la API no lo aceptó.
+        Devuelve la respuesta de la API (en el 2° peso trae el `romaneo`), o None si no se envió."""
 
 
 def _detalle_error(r: httpx.Response) -> str:
@@ -123,22 +124,23 @@ class ClienteHttp(ClienteLogigrain):
 
     # --- Pesos -----------------------------------------------------------------
 
-    def enviar(self, tipo: str, payload: dict) -> None:
+    def enviar(self, tipo: str, payload: dict) -> dict | None:
         nro_ctg = int(payload["camion_id"])
         peso = payload["peso1_kg"] if tipo == "primer_peso" else payload["peso2_kg"]
         if not self.cfg.enviar_pesos:
             log.warning("Envío deshabilitado (enviar_pesos = false): no se registra %s de %s kg en el CTG %s.",
                         tipo, peso, nro_ctg)
-            return
+            return None
         if self._ya_registrado(tipo, nro_ctg):
             log.warning("El %s del CTG %s ya figura en LogiGrain: no se reenvía.", tipo, nro_ctg)
-            return
+            return None
         cuerpo = {"port_id": self.port_id, "nro_ctg": nro_ctg, "peso_kg": int(round(peso))}
         if payload.get("balanza_nro") is not None:
             cuerpo["balanza_nro"] = payload["balanza_nro"]
-        self._post("/api/v1/balanza/registrar-peso", cuerpo)
+        respuesta = self._post("/api/v1/balanza/registrar-peso", cuerpo)
         log.info("Registrado en LogiGrain: %s de %s kg, CTG %s, balanza %s.",
                  tipo, cuerpo["peso_kg"], nro_ctg, cuerpo.get("balanza_nro"))
+        return respuesta
 
     def _ya_registrado(self, tipo: str, nro_ctg: int) -> bool:
         """La API decide sola si un peso es el 1° o el 2°. Si un envío anterior llegó pero se cortó la
@@ -183,6 +185,10 @@ def camion_desde_detalle(d: dict) -> Camion:
     camion.chofer = d.get("chofer_nombre") or ""
     camion.transportista = d.get("transportista_nombre") or ""
     camion.turno = d.get("codigo_turno") or ""
+    camion.chofer_cuit = str(d.get("cuit_chofer") or "")
+    camion.fecha_ingreso = _fecha(d.get("pos_fecha_llegada_puerto"))
+    camion.cpe_id = d.get("id")
+    camion.grado = "" if d.get("calada_grado") is None else str(d["calada_grado"])
     # 1° peso de balanza: en descarga es el bruto (entra lleno), en carga la tara (entra vacío).
     if camion.operacion is Operacion.DESCARGA:
         camion.primer_peso_kg = d.get("peso_bruto_balanza")

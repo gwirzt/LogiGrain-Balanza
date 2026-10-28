@@ -40,8 +40,14 @@ class FuenteSerie:
             self._puerto = None
 
 
+RANGO_TARA = (13_800, 14_500)  # camión vacío
+RANGO_BRUTO = (44_000, 45_000)  # camión cargado
+RANGOS = {"TARA": RANGO_TARA, "BRUTO": RANGO_BRUTO}
+
+
 class FuenteSimulada:
-    """Simula camiones que suben a la balanza, se estabilizan y bajan, en ciclo."""
+    """Simula la balanza: vacía hasta que se pide subir un camión (al consultar el CTG), que se estabiliza
+    con un peso de tara o de bruto y queda quieto hasta que se pide que baje (después de pesar)."""
 
     descripcion = "Simulador"
 
@@ -50,6 +56,21 @@ class FuenteSimulada:
         self.division_kg = division_kg
         self._rng = random.Random(semilla)
         self._pesos: Iterator[tuple[int, bool]] | None = None
+        # Los pide el hilo de la pantalla; el ciclo los lee en cada lectura.
+        self._objetivo: int | None = None  # peso del camión pedido, None = balanza vacía
+        self._pedido = 0  # cambia con cada subir/bajar
+
+    def subir(self, tipo: str) -> None:
+        """Sube un camión con peso de "TARA" o "BRUTO" (si había otro arriba, primero baja)."""
+        minimo, maximo = RANGOS[tipo]
+        d = self.division_kg
+        # Una división adentro de cada extremo: la oscilación del indicador no sale del rango.
+        self._objetivo = self._rng.randrange(minimo + d, maximo - d + 1, d)
+        self._pedido += 1
+
+    def bajar(self) -> None:
+        self._objetivo = None
+        self._pedido += 1
 
     def abrir(self) -> None:
         self._pesos = self._ciclo()
@@ -70,22 +91,17 @@ class FuenteSimulada:
             return int(round(x / d) * d)
 
         while True:
-            for _ in range(15):  # balanza vacía
+            pedido, objetivo = self._pedido, self._objetivo
+            if objetivo is None:  # balanza vacía
                 yield 0, True
-            objetivo = rng.choice([rng.randint(13_000, 17_000), rng.randint(40_000, 52_000)])  # tara o cargado
+                continue
             for i in range(1, 11):  # sube el camión
                 yield redondear(objetivo * i / 10 + rng.uniform(-400, 400)), False
             for _ in range(8):  # se acomoda
                 yield redondear(objetivo + rng.uniform(-3 * d, 3 * d)), False
-            for _ in range(150):  # quieto ~30 s (tiempo para consultar el CTG y pesar), oscila a lo sumo una división
-                yield redondear(objetivo) + rng.choice([0, 0, 0, d, -d]), True
-            for i in range(9, -1, -1):  # baja
+            while self._pedido == pedido:  # quieto hasta que se pese; oscila a lo sumo una división
+                yield objetivo + rng.choice([0, 0, 0, d, -d]), True
+            for i in range(9, 0, -1):  # baja
                 yield max(0, redondear(objetivo * i / 10 + rng.uniform(-400, 400))), False
-
-
-def crear_fuente(cfg: BalanzaConfig):
-    if cfg.modo == "simulador":
-        return FuenteSimulada(division_kg=cfg.division_kg)
-    if cfg.modo == "serie":
-        return FuenteSerie(cfg)
-    raise ValueError(f"Modo de balanza desconocido: {cfg.modo!r} (use 'simulador' o 'serie')")
+            for _ in range(5):  # vacía un momento antes del próximo
+                yield 0, True

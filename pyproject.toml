@@ -7,3 +7,6 @@ dependencies = ["PySide6>=6.8", "pyserial>=3.5", "httpx>=0.27"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# QPrinter dispara excepciones COM internas de Windows (0x80040155) que Qt maneja solo;
+# el faulthandler de pytest las vuelca como si fueran fallas y ensucia la salida.
+addopts = "-p no:faulthandler"

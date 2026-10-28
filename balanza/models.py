@@ -32,6 +32,10 @@ class Camion:
     primer_peso_kg: float | None = None  # 1° peso ya registrado en LogiGrain (quizás en otra balanza)
     primer_peso_momento: datetime | None = None
     primer_peso_balanza_nro: int | None = None
+    chofer_cuit: str = ""
+    fecha_ingreso: datetime | None = None  # llegada al puerto
+    cpe_id: int | None = None  # id de la CPE en LogiGrain
+    grado: str = ""  # grado de calada
     datos: dict = field(default_factory=dict)  # respuesta original de la API
 
 
@@ -63,6 +67,14 @@ class Pesaje:
     destinatario: str = ""
     balanza1_nro: int | None = None  # balanza en la que se tomó cada peso
     balanza2_nro: int | None = None
+    romaneo: dict | None = None  # respuesta de LogiGrain al 2° peso: neto, mermas y neto final
+    # Datos de la Carta de Porte y del puesto que van en el ticket.
+    chofer_cuit: str = ""
+    fecha_ingreso: datetime | None = None  # llegada al puerto según LogiGrain
+    cpe_id: int | None = None  # id de la CPE en LogiGrain: "Código" del ticket
+    grado: str = ""  # grado de calada
+    operador: str = ""  # usuario de LogiGrain que tomó el último peso
+    simulado: bool = False  # algún peso vino del simulador y no del indicador
 
     @property
     def estado(self) -> EstadoPesaje:
